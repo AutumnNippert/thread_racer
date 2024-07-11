@@ -11,10 +11,7 @@
 #include <latch>
 #include <stop_token>
 
-#include <sys/ioctl.h> //ioctl() and TIOCGWINSZ
-#include <unistd.h> // for STDOUT_FILENO
-
-#define HORSE_EMOJI "🏇"
+#define HORSE_EMOJI ">"
 #define PROGRESS_BAR_CHAR "▮"
 
 void racer(int id, size_t num_iterations);
@@ -27,6 +24,19 @@ void print_n_times(std::string str, size_t n){
 	for(size_t i = 0; i < n; i++){
 		std::cout << str;
 	}
+}
+
+void print_progress_bar(size_t progress, size_t total){
+	size_t progress_bar_length = 100 * progress / total;
+
+	std::cout << "[";
+	for (size_t j = 0; j < progress_bar_length; j++)
+	{
+		std::cout << PROGRESS_BAR_CHAR;
+	}
+	std::cout << HORSE_EMOJI;
+	print_n_times("-", 100 - progress_bar_length);
+	std::cout << "]";
 }
 
 int main(int argc, char const *argv[])
@@ -55,7 +65,7 @@ int main(int argc, char const *argv[])
 
 void busyWait(size_t calculations) {
     double x = 0.0;
-	for (int i = 0; i < calculations; ++i) {
+	for (size_t i = 0; i < calculations; ++i) {
 		x = sin(static_cast<double>(rand()) / RAND_MAX + x);
 	}
 }
@@ -66,10 +76,9 @@ void run_race(size_t num_threads, size_t num_iterations)
 	std::latch start_latch = std::latch(num_threads);
 	std::atomic<bool> stop = false;
 	
-	auto racer = [&start_latch, &stop](int id, std::stop_token st, size_t num_iterations, double multiplier)
+	auto racer = [&start_latch, &stop, &ss](int id, std::stop_token st, size_t num_iterations, double multiplier)
 	{
 		// wait for all threads to start
-		size_t progress = 0;
 		start_latch.arrive_and_wait(); // decreases the latch by 1 and waits for the latch to reach 0
 		for (size_t i = 0; i < num_iterations; i++)
 		{
@@ -86,7 +95,7 @@ void run_race(size_t num_threads, size_t num_iterations)
 			}
 			racer_progress[id]++;
 		}
-		//ss.request_stop but from the token
+		ss.request_stop(); // technically 2 could request stop at the same time but honestly it doesn't matter that much
 		stop = true;
 	};
 
@@ -102,30 +111,15 @@ void run_race(size_t num_threads, size_t num_iterations)
 	// wait for the stop bool to be set
 	while (!stop)
 	{
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		std::this_thread::sleep_for(std::chrono::milliseconds(32));
 		// clear the screen and print the race board where each racer is represented like a loading bar like Racer 5:      [▮▮▮▮▮-------]
 		std::cout << "\033[2J\033[1;1H";
-		// get terminal width
-		struct winsize w;
-		ioctl(0, TIOCGWINSZ, &w);
-		size_t terminal_width = w.ws_col;
-
-		// give 40 characters to the racer name
-		size_t racer_name_width = 40;
-		size_t progress_bar_width = terminal_width - racer_name_width - 2;
 		for (size_t i = 0; i < num_threads; i++)
 		{
 			printf("Racer %5zu: ", i);
 
 			size_t progress = racer_progress[i];
-			size_t progress_bar_length = progress_bar_width * progress / num_iterations;
-			// std::cout << std::string(progress_bar_length, '▮');
-			for (size_t j = 0; j < progress_bar_length; j++)
-			{
-				std::cout << PROGRESS_BAR_CHAR;
-			}
-			std::cout << HORSE_EMOJI;
-			print_n_times("-", progress_bar_width - progress_bar_length);
+			print_progress_bar(progress, num_iterations);
 			std::cout << std::endl;
 		}
 	}
@@ -142,13 +136,7 @@ void run_race(size_t num_threads, size_t num_iterations)
 	{
 		printf("Racer %5zu: ", i);
 		size_t progress = racer_progress[i];
-		size_t progress_bar_length = 100 * progress / num_iterations;
-		for (size_t j = 0; j < progress_bar_length; j++)
-		{
-			std::cout << PROGRESS_BAR_CHAR;
-		}
-		std::cout << HORSE_EMOJI;
-		print_n_times("-", 100 - progress_bar_length);
+		print_progress_bar(progress, num_iterations);
 		std::cout << std::endl;
 	}
 
